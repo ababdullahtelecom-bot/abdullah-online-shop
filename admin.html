@@ -1,0 +1,335 @@
+
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Abdullah Telecom — Admin Panel</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#f1f5f9;color:#172033;font-family:Arial,sans-serif}
+header{background:#075e54;color:white;padding:18px;text-align:center}
+main{max-width:900px;margin:20px auto;padding:14px}
+.card{background:white;padding:20px;border-radius:12px;margin-bottom:18px;box-shadow:0 2px 12px #0000000c}
+h2{margin-top:0;font-size:21px}
+input,textarea,button{font:inherit;width:100%;padding:11px;margin:6px 0;border:1px solid #cbd5e1;border-radius:7px}
+textarea{min-height:75px;resize:vertical}
+button{background:#087f5b;color:white;border:0;font-weight:bold;cursor:pointer}
+button:disabled{opacity:.55;cursor:wait}
+.secondary{background:#475569}
+.danger{background:#b91c1c}
+.product{border:1px solid #e2e8f0;border-radius:9px;padding:12px;margin:12px 0;display:flex;gap:12px;align-items:center}
+.product img{width:85px;height:85px;object-fit:contain;background:#f8fafc;border-radius:7px}
+.details{flex:1;min-width:0;overflow-wrap:anywhere}
+.actions{display:flex;gap:6px}
+.actions button{padding:9px 6px}
+.small{font-size:13px;color:#64748b}
+.hidden{display:none!important}
+#message{white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:500px){.product{align-items:flex-start}.product img{width:65px;height:65px}.actions{flex-direction:column;min-width:75px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>আব্দুল্লাহ টেলিকম এন্ড স্টুডিও</h1>
+  <p>অনলাইন শপ — অ্যাডমিন প্যানেল</p>
+</header>
+
+<main>
+  <div class="card" id="loginCard">
+    <h2>অ্যাডমিন লগইন</h2>
+    <p class="small">আপনার Supabase অ্যাকাউন্ট দিয়ে লগইন করুন।</p>
+    <form id="loginForm">
+      <input id="email" type="email" placeholder="ইমেইল" required autocomplete="username">
+      <input id="password" type="password" placeholder="পাসওয়ার্ড" required autocomplete="current-password">
+      <button type="submit">লগইন করুন</button>
+    </form>
+  </div>
+
+  <div class="card hidden" id="dashboard">
+    <h2 id="formTitle">নতুন পণ্য যোগ করুন</h2>
+    <form id="productForm">
+      <input id="name" placeholder="পণ্যের নাম" required>
+      <input id="price" type="number" min="0" step="0.01" placeholder="বিক্রয় মূল্য (টাকা)" required>
+      <input id="oldPrice" type="number" min="0" step="0.01" placeholder="আগের মূল্য (ঐচ্ছিক)">
+      <input id="tag" placeholder="অফার ট্যাগ (যেমন: ১০০ টাকা ছাড়)">
+      <textarea id="description" placeholder="পণ্যের বিবরণ"></textarea>
+      <input id="emoji" placeholder="ইমোজি (যেমন 🎧)" value="🛍️">
+      <label for="imageFile">পণ্যের ছবি নির্বাচন করুন</label>
+      <input id="imageFile" type="file" accept="image/*">
+      <p class="small" id="imageNote">নতুন ছবি না দিলে আগের ছবিটি থাকবে।</p>
+      <button id="saveButton" type="submit">পণ্য সেভ করুন</button>
+      <button id="cancelEdit" type="button" class="secondary hidden">এডিট বাতিল করুন</button>
+    </form>
+    <hr>
+    <h2>আপনার পণ্যসমূহ</h2>
+    <button id="refreshButton" type="button" class="secondary">পণ্যের তালিকা রিফ্রেশ</button>
+    <div id="productList"></div>
+  </div>
+
+  <div class="card"><p id="message" role="status">প্রথমে লগইন করুন।</p></div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL = "https://gwqzvoyqqpawuccpqfyj.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_ZXGE4P4FaF6wn0RArq0D1g_SSGM0FMP";
+const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
+
+const $ = id => document.getElementById(id);
+let editingProduct = null;
+let currentImageUrl = "";
+
+function message(text) {
+  $("message").textContent = text;
+}
+
+function setBusy(busy) {
+  $("saveButton").disabled = busy;
+  $("refreshButton").disabled = busy;
+}
+
+function resetForm() {
+  editingProduct = null;
+  currentImageUrl = "";
+  $("productForm").reset();
+  $("emoji").value = "🛍️";
+  $("formTitle").textContent = "নতুন পণ্য যোগ করুন";
+  $("saveButton").textContent = "পণ্য সেভ করুন";
+  $("cancelEdit").classList.add("hidden");
+  $("imageNote").textContent = "নতুন ছবি না দিলে আগের ছবিটি থাকবে।";
+}
+
+$("loginForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  message("লগইন হচ্ছে...");
+  const { error } = await db.auth.signInWithPassword({
+    email: $("email").value.trim(),
+    password: $("password").value
+  });
+
+  if (error) {
+    message("লগইন হয়নি: " + error.message);
+    return;
+  }
+
+  await checkSession();
+});
+
+$("cancelEdit").addEventListener("click", () => {
+  resetForm();
+  message("এডিট বাতিল করা হয়েছে।");
+});
+
+$("refreshButton").addEventListener("click", loadProducts);
+
+async function checkSession() {
+  const { data, error } = await db.auth.getSession();
+  if (error) {
+    message("সেশন যাচাই করা যায়নি: " + error.message);
+    return;
+  }
+
+  const loggedIn = !!data.session;
+  $("loginCard").classList.toggle("hidden", loggedIn);
+  $("dashboard").classList.toggle("hidden", !loggedIn);
+
+  if (loggedIn) {
+    message("লগইন সফল। পণ্য লোড হচ্ছে...");
+    await loadProducts();
+  } else {
+    message("প্রথমে আপনার অ্যাডমিন অ্যাকাউন্ট দিয়ে লগইন করুন।");
+  }
+}
+
+async function loadProducts() {
+  message("পণ্যের তালিকা লোড হচ্ছে...");
+  const { data, error } = await db
+    .from("products")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    message("পণ্য লোড হয়নি: " + error.message);
+    return;
+  }
+
+  const list = $("productList");
+  list.replaceChildren();
+
+  if (!data.length) {
+    const empty = document.createElement("p");
+    empty.textContent = "এখনো কোনো পণ্য যোগ করা হয়নি।";
+    list.appendChild(empty);
+  }
+
+  data.forEach(product => {
+    const row = document.createElement("div");
+    row.className = "product";
+
+    const img = document.createElement("img");
+    img.alt = product.name;
+    img.src = product.image_url || "";
+    if (!product.image_url) img.style.visibility = "hidden";
+
+    const details = document.createElement("div");
+    details.className = "details";
+
+    const title = document.createElement("strong");
+    title.textContent = product.name;
+
+    const price = document.createElement("p");
+    price.textContent = "মূল্য: ৳" + product.price +
+      (product.old_price ? " | আগের মূল্য: ৳" + product.old_price : "");
+
+    const tag = document.createElement("p");
+    tag.className = "small";
+    tag.textContent = product.tag || "";
+
+    details.append(title, price, tag);
+
+    const actions = document.createElement("div");
+    actions.className = "actions";
+
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.textContent = "এডিট";
+    edit.addEventListener("click", () => startEdit(product));
+
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "danger";
+    del.textContent = "ডিলিট";
+    del.addEventListener("click", () => deleteProduct(product));
+
+    actions.append(edit, del);
+    row.append(img, details, actions);
+    list.appendChild(row);
+  });
+
+  message("পণ্যের তালিকা আপডেট হয়েছে। মোট পণ্য: " + data.length);
+}
+
+function startEdit(product) {
+  editingProduct = product;
+  currentImageUrl = product.image_url || "";
+  $("name").value = product.name || "";
+  $("price").value = product.price ?? "";
+  $("oldPrice").value = product.old_price ?? "";
+  $("tag").value = product.tag || "";
+  $("description").value = product.description || "";
+  $("emoji").value = product.emoji || "🛍️";
+  $("imageFile").value = "";
+  $("imageNote").textContent = currentImageUrl
+    ? "আগের ছবিটি রাখা হবে। নতুন ছবি চাইলে নির্বাচন করুন।"
+    : "নতুন ছবি নির্বাচন করুন।";
+  $("formTitle").textContent = "পণ্য এডিট করুন";
+  $("saveButton").textContent = "পরিবর্তন সেভ করুন";
+  $("cancelEdit").classList.remove("hidden");
+  $("productForm").scrollIntoView({ behavior: "smooth", block: "start" });
+  message("এডিট করার জন্য পণ্যটি ফর্মে আনা হয়েছে।");
+}
+
+async function uploadImage(file) {
+  const extension = (file.name.split(".").pop() || "jpg")
+    .toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+  const path = Date.now() + "-" + crypto.randomUUID() + "." + extension;
+
+  const { error } = await db.storage
+    .from("product-images")
+    .upload(path, file, { upsert: false });
+
+  if (error) throw error;
+
+  const { data } = db.storage.from("product-images").getPublicUrl(path);
+  return data.publicUrl;
+}
+
+$("productForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  setBusy(true);
+
+  try {
+    message("পণ্য সেভ হচ্ছে...");
+
+    const name = $("name").value.trim();
+    const price = Number($("price").value);
+    const oldPriceInput = $("oldPrice").value;
+    const oldPrice = oldPriceInput === "" ? null : Number(oldPriceInput);
+
+    if (!name || !Number.isFinite(price) || price < 0 ||
+        (oldPrice !== null && (!Number.isFinite(oldPrice) || oldPrice < 0))) {
+      throw new Error("পণ্যের নাম ও সঠিক মূল্য দিন।");
+    }
+
+    let imageUrl = currentImageUrl;
+    const file = $("imageFile").files[0];
+    if (file) {
+      if (!file.type.startsWith("image/")) {
+        throw new Error("শুধু ছবির ফাইল নির্বাচন করুন।");
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        throw new Error("ছবির সাইজ ৫ MB-এর কম রাখুন।");
+      }
+      imageUrl = await uploadImage(file);
+    }
+
+    const product = {
+      name,
+      price,
+      old_price: oldPrice,
+      tag: $("tag").value.trim() || null,
+      description: $("description").value.trim() || null,
+      emoji: $("emoji").value.trim() || "🛍️",
+      image_url: imageUrl || null
+    };
+
+    let result;
+    if (editingProduct) {
+      result = await db.from("products")
+        .update(product)
+        .eq("id", editingProduct.id);
+    } else {
+      result = await db.from("products").insert(product);
+    }
+
+    if (result.error) throw result.error;
+
+    resetForm();
+    message("সফলভাবে সেভ হয়েছে।");
+    await loadProducts();
+  } catch (error) {
+    message("সেভ করা যায়নি: " + (error.message || "অজানা সমস্যা"));
+  } finally {
+    setBusy(false);
+  }
+});
+
+async function deleteProduct(product) {
+  if (!confirm('"' + product.name + '" পণ্যটি ডিলিট করতে চান?')) return;
+
+  message("পণ্য ডিলিট হচ্ছে...");
+  const { error } = await db.from("products").delete().eq("id", product.id);
+
+  if (error) {
+    message("ডিলিট করা যায়নি: " + error.message);
+    return;
+  }
+
+  if (editingProduct && editingProduct.id === product.id) resetForm();
+  message("পণ্যটি ডিলিট হয়েছে।");
+  await loadProducts();
+}
+
+db.auth.onAuthStateChange((event, session) => {
+  if (event === "SIGNED_OUT") {
+    $("loginCard").classList.remove("hidden");
+    $("dashboard").classList.add("hidden");
+    message("আপনি লগআউট করেছেন।");
+  }
+});
+
+checkSession();
+</script>
+</body>
+</html>
