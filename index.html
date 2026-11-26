@@ -59,33 +59,178 @@ footer{background:#061b43;color:#dbe8ff;padding:25px 18px;text-align:center;font
 </main>
 <footer><strong>Abdullah Online Shop</strong><br>বউ বাজার, প্রতাপনগর, মেঘনাঘাট, সোনারগাঁও, নারায়ণগঞ্জ<br><span>© অনলাইন শপ</span></footer>
 <script>
-/* SETUP: Replace this URL after deploying the included Google Apps Script web app. */
+
 const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxOhuY-nUiBoyELAJMNXO7BLADGDCoIs5WrQtiJuEceqWG-MG3yiX98njr1O6VCiv67mw/exec";
-const products = [
- {id:"tp110",name:"Top One TP-110 Wireless Neckband",price:650,oldPrice:750,tag:"১০০ টাকা ছাড়",description:"🎧🔥 দারুণ সাউন্ড, দীর্ঘ ব্যাটারি ব্যাকআপ! আপনার পছন্দের গান শুনুন নিজের মতো করে। Bluetooth 5.3 Wireless Connection, প্যাকেটের উল্লেখ অনুযায়ী ৫০ ঘণ্টা পর্যন্ত মিউজিক টাইম, Hi-Fi Stereo Sound, Noise Reduction, Magnetic Design, Lightweight & Comfortable এবং Transparent Feature।",emoji:"🎧",image:"assets/neckband_offer.png"}
-];
-const money=n=>"৳"+Number(n).toLocaleString("en-US");
-const grid=document.getElementById("productGrid"),select=document.getElementById("product");
-products.forEach(p=>{
- const card=document.createElement("article");card.className="card";
- const photo=p.image?`<img src="${p.image}" alt="${p.name}">`:`<div class="placeholder" aria-label="${p.name}">${p.emoji}</div>`;
- card.innerHTML=`<div class="photo">${photo}<span class="tag">${p.tag}</span></div><div class="cardbody"><h3>${p.name}</h3><div class="desc">${p.description}</div><div class="price"><span class="now">${money(p.price)}</span><span class="old">${money(p.oldPrice)}</span></div><button class="btn" type="button" data-product="${p.id}">অর্ডার করুন</button></div>`;
- grid.appendChild(card);
- const opt=document.createElement("option");opt.value=p.id;opt.textContent=`${p.name} — ${money(p.price)}`;select.appendChild(opt);
+
+const SUPABASE_URL = "https://gwqzvoyqqpawuccpqfyj.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_ZXGE4P4FaF6wn0RArq0D1g_SSGM0FMP";
+
+const defaultProducts = [{
+  id: "tp110",
+  name: "Top One TP-110 Wireless Neckband",
+  price: 650,
+  oldPrice: 750,
+  tag: "১০০ টাকা ছাড়",
+  description: "🎧🔥 দারুণ সাউন্ড, দীর্ঘ ব্যাটারি ব্যাকআপ! Bluetooth 5.3 Wireless Connection, প্যাকেটের উল্লেখ অনুযায়ী ৫০ ঘণ্টা পর্যন্ত মিউজিক টাইম, Hi-Fi Stereo Sound, Noise Reduction, Magnetic Design, Lightweight & Comfortable এবং Transparent Feature।",
+  emoji: "🎧",
+  image: "assets/neckband_offer.png"
+}];
+
+let products = [...defaultProducts];
+
+const money = n => "৳" + Number(n || 0).toLocaleString("en-US");
+const grid = document.getElementById("productGrid");
+const select = document.getElementById("product");
+const status = document.getElementById("status");
+const form = document.getElementById("orderForm");
+const submit = document.getElementById("submitBtn");
+
+function renderProducts() {
+  grid.innerHTML = "";
+  select.innerHTML = '<option value="">পণ্য নির্বাচন করুন</option>';
+
+  products.forEach(p => {
+    const card = document.createElement("article");
+    card.className = "card";
+
+    const photo = p.image
+      ? `<img src="${p.image}" alt="">`
+      : `<div class="placeholder">${p.emoji || "📦"}</div>`;
+
+    card.innerHTML = `
+      <div class="photo">${photo}<span class="tag">${p.tag || ""}</span></div>
+      <div class="cardbody">
+        <h3>${p.name}</h3>
+        <div class="desc">${p.description || ""}</div>
+        <div class="price">
+          <span class="now">${money(p.price)}</span>
+          ${p.oldPrice > p.price ? `<span class="old">${money(p.oldPrice)}</span>` : ""}
+        </div>
+        <button class="btn" type="button" data-product="${p.id}">অর্ডার করুন</button>
+      </div>`;
+
+    grid.appendChild(card);
+
+    const option = document.createElement("option");
+    option.value = p.id;
+    option.textContent = `${p.name} — ${money(p.price)}`;
+    select.appendChild(option);
+  });
+}
+
+async function loadProducts() {
+  try {
+    if (!window.supabase) {
+      await new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+        script.onload = resolve;
+        script.onerror = () => reject(new Error("Supabase library load failed"));
+        document.head.appendChild(script);
+      });
+    }
+
+    const db = window.supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_PUBLISHABLE_KEY
+    );
+
+    const { data, error } = await db
+      .from("products")
+      .select("id,name,price,old_price,tag,description,emoji,image_url,created_at")
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+
+    products = (data || []).map(p => ({
+      id: p.id,
+      name: p.name,
+      price: Number(p.price),
+      oldPrice: Number(p.old_price || 0),
+      tag: p.tag || "",
+      description: p.description || "",
+      emoji: p.emoji || "📦",
+      image: p.image_url || ""
+    }));
+
+    // ডেটাবেসে এখনো কোনো পণ্য না থাকলে পুরোনো Neckband দেখাবে।
+    if (products.length === 0) products = [...defaultProducts];
+
+  } catch (error) {
+    console.error("পণ্য লোড করা যায়নি:", error);
+    products = [...defaultProducts];
+  }
+
+  renderProducts();
+}
+
+grid.addEventListener("click", e => {
+  const button = e.target.closest("[data-product]");
+  if (button) {
+    select.value = button.dataset.product;
+    document.getElementById("order").scrollIntoView({ behavior: "smooth" });
+  }
 });
-grid.addEventListener("click",e=>{const b=e.target.closest("[data-product]");if(b){select.value=b.dataset.product;document.getElementById("order").scrollIntoView({behavior:"smooth"});}});
-const status=document.getElementById("status"),form=document.getElementById("orderForm"),submit=document.getElementById("submitBtn");
-form.addEventListener("submit",async e=>{
- e.preventDefault();status.style.display="block";status.className="status";
- if(!GOOGLE_SCRIPT_URL.startsWith("https://script.google.com/")){status.className="status error";status.textContent="সেটআপ বাকি: Google Apps Script Web App URL বসানো হয়নি। README ফাইলে দেওয়া নির্দেশনা অনুসরণ করুন।";return;}
- const p=products.find(x=>x.id===select.value),fd=new FormData(form);
- const payload={product:p.name,price:p.price,quantity:fd.get("quantity"),name:fd.get("name"),phone:fd.get("phone"),area:fd.get("area"),address:fd.get("address"),note:fd.get("note"),total:p.price*Number(fd.get("quantity")),source:location.href};
- submit.disabled=true;submit.textContent="জমা হচ্ছে…";
- try{
-  await fetch(GOOGLE_SCRIPT_URL,{method:"POST",mode:"no-cors",headers:{"Content-Type":"text/plain;charset=utf-8"},body:JSON.stringify(payload)});
-  status.textContent="অর্ডার পাঠানো হয়েছে বলে অনুরোধ পাঠানো হয়েছে। অনুগ্রহ করে ফোন চালু রাখুন; দোকান থেকে নিশ্চিত করা হবে।";form.reset();
- }catch(err){status.className="status error";status.textContent="অর্ডার পাঠানো যায়নি। ইন্টারনেট সংযোগ পরীক্ষা করে আবার চেষ্টা করুন।";}
- finally{submit.disabled=false;submit.textContent="✅ অর্ডার জমা দিন";}
+
+form.addEventListener("submit", async e => {
+  e.preventDefault();
+  status.style.display = "block";
+  status.className = "status";
+
+  const p = products.find(x => String(x.id) === String(select.value));
+
+  if (!p) {
+    status.className = "status error";
+    status.textContent = "অনুগ্রহ করে একটি পণ্য নির্বাচন করুন।";
+    return;
+  }
+
+  const fd = new FormData(form);
+  const quantity = Number(fd.get("quantity"));
+
+  if (!Number.isFinite(quantity) || quantity < 1) {
+    status.className = "status error";
+    status.textContent = "সঠিক পরিমাণ লিখুন।";
+    return;
+  }
+
+  const payload = {
+    product: p.name,
+    price: p.price,
+    quantity,
+    name: fd.get("name"),
+    phone: fd.get("phone"),
+    area: fd.get("area"),
+    address: fd.get("address"),
+    note: fd.get("note"),
+    total: p.price * quantity,
+    source: location.href
+  };
+
+  submit.disabled = true;
+  submit.textContent = "জমা হচ্ছে…";
+
+  try {
+    await fetch(GOOGLE_SCRIPT_URL, {
+      method: "POST",
+      mode: "no-cors",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload)
+    });
+
+    status.textContent = "অর্ডারের অনুরোধ পাঠানো হয়েছে। দোকান থেকে ফোন করে নিশ্চিত করা হবে।";
+    form.reset();
+
+  } catch (error) {
+    status.className = "status error";
+    status.textContent = "অর্ডার পাঠানো যায়নি। ইন্টারনেট সংযোগ পরীক্ষা করুন।";
+  } finally {
+    submit.disabled = false;
+    submit.textContent = "✅ অর্ডার জমা দিন";
+  }
 });
+
+loadProducts();
+
 </script>
 </body></html>
