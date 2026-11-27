@@ -218,14 +218,40 @@ form.addEventListener("submit", async e => {
   submit.textContent = "জমা হচ্ছে…";
 
   try {
-    await fetch(GOOGLE_SCRIPT_URL, {
+        const db = window.supabase.createClient(
+      SUPABASE_URL,
+      SUPABASE_PUBLISHABLE_KEY
+    );
+
+    const { error: orderError } = await db
+      .from("orders")
+      .insert({
+        customer_name: String(payload.name || ""),
+        phone: String(payload.phone || ""),
+        address: [payload.area, payload.address]
+          .filter(Boolean)
+          .join(", "),
+        items: [{
+          product: payload.product,
+          price: payload.price,
+          quantity: payload.quantity,
+          area: payload.area,
+          note: payload.note,
+          source: payload.source
+        }],
+        total: payload.total
+      });
+
+    if (orderError) throw orderError;
+
+    fetch(GOOGLE_SCRIPT_URL, {
       method: "POST",
       mode: "no-cors",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
       body: JSON.stringify(payload)
-    });
+    }).catch(error => console.error("Sheets error:", error));
 
-    status.textContent = "অর্ডারের অনুরোধ পাঠানো হয়েছে। দোকান থেকে ফোন করে নিশ্চিত করা হবে।";
+    status.textContent = "অর্ডার জমা হয়েছে। দোকান থেকে ফোন করে নিশ্চিত করা হবে।";
     form.reset();
 
   } catch (error) {
