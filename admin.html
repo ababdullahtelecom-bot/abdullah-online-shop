@@ -297,7 +297,7 @@ $("productForm").addEventListener("submit", async event => {
 
     resetForm();
     message("সফলভাবে সেভ হয়েছে।");
-    await loadProducts();
+    await loadProducts();await loadOrders();
   } catch (error) {
     message("সেভ করা যায়নি: " + (error.message || "অজানা সমস্যা"));
   } finally {
